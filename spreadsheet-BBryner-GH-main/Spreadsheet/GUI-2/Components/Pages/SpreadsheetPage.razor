@@ -1,0 +1,408 @@
+﻿@namespace GUI.Components.Pages
+@page "/sheets"
+@rendermode InteractiveServer
+@inherits LayoutComponentBase
+@inject IJSRuntime JsRuntime
+
+<!-- 
+Main part of the spreadsheet GUI 
+Implemented by Brenden Bryner 
+October 22, 2025
+-->
+
+<PageTitle>Spreadsheet</PageTitle>
+
+<!-- Main spreadsheet container -->
+<div class="spreadsheet-container">
+    <div class="header-section">
+        
+        <!-- File saving and loading buttons -->
+        <div class="file-operations">
+            <button class="btn btn-primary" @onclick="SaveFile">Save</button>
+            <label class="load-label">Load</label>
+            <InputFile type="file" OnChange="HandleFileChooser"/>
+        </div>
+
+        <!-- Cell information text boxes -->
+        <div class="cell-info-section">
+            <div class="info-group">
+                <label><strong>Cell Name:</strong></label>
+                <input type="text" readonly value="@SelectedCellName" class="info-input"/>
+            </div>
+
+            <div class="info-group">
+                <label><strong>Cell Value:</strong></label>
+                <input type="text" readonly value="@SelectedCellValue" class="info-input wide-input"/>
+            </div>
+
+            <div class="info-group">
+                <label><strong>Cell Contents:</strong></label>
+                <input type="text"
+                       @bind="SelectedCellContents"
+                       @bind:event="oninput"
+                       @onkeypress="HandleContentsKeyPress"
+                       class="info-input extra-wide-input"/>
+            </div>
+        </div>
+
+        <!-- Formula Preview  -->
+        @if (ShowFormulaPreview)
+        {
+            <div class="formula-preview">
+                <strong>Formula Preview:</strong> @FormulaPreview
+            </div>
+        }
+
+        <!-- Error Message  -->
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <div class="error-message">
+                <strong>Error:</strong> @ErrorMessage
+                <button @onclick="ClearError" class="error-close-btn">×</button>
+            </div>
+        }
+    </div>
+
+    <!--  Spreadsheet Gird  -->
+    <div class="grid-section">
+        <div class="table-container">
+            <div class="scrollable">
+                <table class="table table-bordered">
+                    
+                    <!-- Column top with letters -->
+                    <thead>
+                    <tr class="fixed-header">
+                        <th scope="col" class="corner-header">&nbsp;</th>
+                        @for (int col = 0; col < Cols; col++)
+                        {
+                            <th scope="col">@Alphabet[col]</th>
+                        }
+                    </tr>
+                    </thead>
+
+                    <tbody>
+                    @for (int row = 0; row < Rows; row++)
+                    {
+                        <tr>
+                            <th scope="row" class="fixed-column">@(row + 1)</th>
+                            @for (int col = 0; col < Cols; col++)
+                            {
+                                int r = row;
+                                int c = col;
+
+                                <td @onclick="() => CellClicked(r, c)"
+                                    class="@GetCellClass(r, c)">
+                                    <div class="cell-content">@CellsBackingStore[r, c]</div>
+                                </td>
+                            }
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CSS style section -->
+
+<style>
+    /* Main spreadsheet part */
+    .spreadsheet-container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    /* Fixed part at the top  */
+    .header-section {
+        flex-shrink: 0;
+        background: white;
+        border-bottom: 2px solid #dee2e6;
+        padding: 15px;
+        z-index: 100;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    /* file buttons */
+    .file-operations {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 15px;
+    }
+
+    .load-label {
+        font-weight: bold;
+        margin: 0;
+    }
+
+    /* cell information styles */
+    .cell-info-section {
+        display: flex;
+        gap: 20px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .info-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .info-input {
+        padding: 6px 10px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        background-color: white;
+        font-size: 0.9em;
+    }
+
+    .info-input[readonly] {
+        background-color: #f8f9fa;
+        color: #6c757d;
+    }
+
+    .wide-input {
+        width: 250px;
+    }
+
+    .extra-wide-input {
+        width: 350px;
+    }
+
+    /* Formula preview */
+    .formula-preview {
+        background: #f0fff4;
+        border: 1px solid #9ae6b4;
+        color: #2f855a;
+        padding: 10px 14px;
+        border-radius: 6px;
+        margin: 8px 0;
+        font-size: 0.9em;
+        border-left: 4px solid #48bb78;
+    }
+
+    /* Error message */
+    .error-message {
+        background: #fff5f5;
+        border: 1px solid #fed7d7;
+        color: #c53030;
+        padding: 12px;
+        border-radius: 6px;
+        margin: 10px 0;
+        font-size: 0.9em;
+    }
+
+    .error-close-btn {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: #721c24;
+        cursor: pointer;
+        font-size: 18px;
+        font-weight: bold;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .error-close-btn:hover {
+        color: #491217;
+        background-color: #f1b0b7;
+        border-radius: 50%;
+    }
+
+    /* Grid Section - can scroll */
+    .grid-section {
+        flex: 1;
+        overflow: hidden;
+        background: white;
+        position: relative;
+    }
+
+    .table-container {
+        height: 100%;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .scrollable {
+        height: 100%;
+        overflow: auto;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+    }
+
+    /* spreadsheet table style */
+    .table {
+        margin: 0;
+        border-collapse: separate;
+        border-spacing: 0;
+        min-width: fit-content;
+    }
+
+    /* Corner  (A1 position) */
+    .corner-header {
+        background-color: #f8f9fa !important;
+        position: sticky;
+        top: 0;
+        left: 0;
+        z-index: 102;
+        min-width: 60px;
+        border-right: 2px solid #dee2e6 !important;
+        border-bottom: 2px solid #dee2e6 !important;
+    }
+
+    /* Columns (A, B, C..) */
+    .fixed-header {
+        position: sticky;
+        top: 0;
+        z-index: 101;
+        background-color: #f8f9fa !important;
+        font-weight: bold;
+    }
+
+    .fixed-header th {
+        background-color: #f8f9fa !important;
+        position: sticky;
+        top: 0;
+        z-index: 101;
+        border-bottom: 2px solid #dee2e6 !important;
+        min-width: 120px;
+        text-align: center;
+        padding: 8px 4px !important;
+    }
+
+    /* Row  (1, 2, 3...) */
+    .fixed-column {
+        position: sticky;
+        left: 0;
+        z-index: 100;
+        background-color: #f8f9fa !important;
+        font-weight: bold;
+        min-width: 60px;
+        border-right: 2px solid #dee2e6 !important;
+        text-align: center;
+        padding: 0 !important;
+    }
+
+    /* Cell styling */
+    td {
+        border: 1px solid #dee2e6 !important;
+        cursor: pointer;
+        padding: 0 !important;
+        min-width: 120px;
+        max-width: 120px;
+        height: 35px;
+        background-color: white;
+        transition: background-color 0.15s ease;
+        position: relative;
+    }
+
+    /* selected cells should look blue */
+    .selected-cell {
+        background-color: #e3f2fd !important;
+        box-shadow: inset 0 0 0 2px #2196F3;
+        z-index: 10;
+    }
+
+    /* hovering over cells should make them a little grey */
+    td:hover {
+        background-color: #f8f9fa !important;
+    }
+
+    .cell-content {
+        width: 100%;
+        height: 100%;
+        padding: 6px 8px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.9em;
+        line-height: 1.4;
+        display: flex;
+        align-items: center;
+    }
+
+    /* scrollbar style */
+    .scrollable::-webkit-scrollbar {
+        width: 12px;
+        height: 12px;
+    }
+
+    .scrollable::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 6px;
+    }
+
+    .scrollable::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 6px;
+        border: 2px solid #f1f1f1;
+    }
+
+    .scrollable::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
+    }
+
+    /* Ensure the table takes full width for horizontal scrolling */
+    .table {
+        width: auto;
+        min-width: 100%;
+    }
+    
+</style>
+
+<script type="text/javascript">
+    function focusElement(id) {
+        console.log(`looking for: ${id}`);
+        var element = document.getElementById(id);
+        if (element) {
+            console.log(`focusing element: ${id} ${element}`)
+            element.focus();
+        }
+    }
+
+    window.addKeyPressListener = function (dotNetObject) {
+        console.log("registering key press event handler");
+        document.addEventListener('keydown', function (event) {
+            console.log(`got key: ${event.key}`);
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+                event.preventDefault(); // Prevent arrow keys from scrolling
+            }
+            dotNetObject.invokeMethodAsync('HandleKeyPress', event.key);
+        });
+    };
+
+    function downloadFile(fileName, fileContent) {
+        console.log(`download file ${fileName}`);
+        // Create a blob with the file content
+        const blob = new Blob([fileContent], { type: "text/plain" });
+
+        // Create a link element
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+
+        // Append the anchor element to the body
+        document.body.appendChild(a);
+
+        // Click the link to trigger download
+        a.click();
+
+        // Remove the anchor element from the DOM
+        document.body.removeChild(a);
+    }
+</script>
